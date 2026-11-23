@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Дешёвый Магнит — поиск низких цен по городу и магазину</title>
+  <meta name="description" content="Поиск дешёвых товаров в магазинах сети Магнит: выбор города и конкретного магазина, сортировка по цене, сравнение цен.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23e30613'/%3E%3Ctext x='32' y='45' font-family='Segoe UI,Arial' font-size='38' font-weight='700' fill='white' text-anchor='middle'%3EМ%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">М</span>
+      <div class="brand-text">
+        <strong>Дешёвый Магнит</strong>
+        <small>низкие цены по городу и магазину</small>
+      </div>
+    </div>
+    <div class="mode-switch" role="tablist" aria-label="Режим работы">
+      <button type="button" class="mode-btn is-active" data-mode="store">По магазину</button>
+      <button type="button" class="mode-btn" data-mode="compare">Сравнение по городу</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel" aria-label="Параметры поиска">
+    <div class="panel-row">
+      <div class="field field-city">
+        <label for="cityInput">Город</label>
+        <div class="combo" id="cityCombo">
+          <input id="cityInput" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="Начните вводить город" role="combobox" aria-expanded="false" aria-controls="cityList">
+          <div class="combo-list" id="cityList" role="listbox" hidden></div>
+        </div>
+      </div>
+
+      <div class="field field-store">
+        <label for="storeInput">Магазин <span class="muted" id="storeCount"></span></label>
+        <div class="combo" id="storeCombo">
+          <input id="storeInput" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="Сначала выберите город" role="combobox" aria-expanded="false" aria-controls="storeList" disabled>
+          <div class="combo-list" id="storeList" role="listbox" hidden></div>
+        </div>
+        <button type="button" class="map-toggle" id="mapToggle" aria-controls="mapBox" aria-expanded="false">На карте</button>
+      </div>
+    </div>
+
+    <div class="map-box" id="mapBox" hidden>
+      <div class="map-head">
+        <span class="map-title">Магазины на карте</span>
+        <span class="map-hint" id="mapHint">Нажмите на точку, чтобы выбрать магазин</span>
+        <span class="map-actions">
+          <button type="button" class="map-action" id="mapCityBtn">Весь город</button>
+          <button type="button" class="map-action" id="mapStoreBtn">К выбранному</button>
+          <button type="button" class="map-close" id="mapClose" aria-label="Скрыть карту">×</button>
+        </span>
+      </div>
+      <div class="store-map" id="storeMap"></div>
+    </div>
+
+    <div class="panel-row">
+      <div class="field field-query">
+        <label for="queryInput">Что ищем</label>
+        <input id="queryInput" type="search" autocomplete="off" spellcheck="false"
+               placeholder="Например: молоко, сыр, кофе">
+      </div>
+
+      <div class="field field-category">
+        <label for="categoryTrigger">Категория <span class="muted" id="categoryCount"></span></label>
+        <div class="category-control" id="categoryControl">
+          <button type="button" id="categoryTrigger" class="category-trigger"
+                  aria-haspopup="dialog" aria-expanded="false" disabled>
+            <span class="category-trigger-text" id="categoryLabel">Все категории</span>
+            <span class="category-trigger-chevron" aria-hidden="true">›</span>
+          </button>
+          <button type="button" class="category-trigger-clear" id="categoryClear" hidden aria-label="Сбросить категорию">×</button>
+        </div>
+      </div>
+
+      <div class="field field-sort">
+        <label for="sortSelect">Сортировка</label>
+        <select id="sortSelect">
+          <option value="price_asc">Сначала дешёвые</option>
+          <option value="price_desc">Сначала дорогие</option>
+          <option value="discount">Больше скидка</option>
+          <option value="popularity">Популярные</option>
+          <option value="rating">Высокий рейтинг</option>
+          <option value="new">Новинки</option>
+        </select>
+      </div>
+
+      <button type="button" id="searchBtn" class="btn btn-primary">Найти</button>
+    </div>
+
+    <div class="panel-row" id="compareControls" hidden>
+      <div class="field field-compare-count">
+        <label for="compareCount">Магазинов для сравнения</label>
+        <select id="compareCount">
+          <option value="10">10 — быстро</option>
+          <option value="20" selected>20 — оптимально</option>
+          <option value="40">40 — дольше, точнее</option>
+        </select>
+      </div>
+      <button type="button" id="compareBtn" class="btn btn-primary">Сравнить цены</button>
+      <button type="button" id="compareCancel" class="btn btn-ghost" hidden>Остановить</button>
+      <p class="hint">Сервис опросит выбранное количество магазинов города и покажет минимальную цену на каждый товар.</p>
+    </div>
+  </section>
+
+  <section id="statusBar" class="statusbar" hidden></section>
+
+  <section id="results" class="results" aria-live="polite"></section>
+
+  <div id="moreWrap" class="more-wrap" hidden>
+    <button type="button" id="moreBtn" class="btn">Показать ещё</button>
+  </div>
+
+  <section id="compareResults" class="compare-results" hidden aria-live="polite"></section>
+
+  <footer class="footer">
+    <p>Неофициальный сервис. Данные и цены загружаются с сайта <a href="https://magnit.ru" target="_blank" rel="noreferrer">magnit.ru</a>
+      и могут отличаться от указанных на кассе. Наличие товара уточняйте в магазине.</p>
+  </footer>
+</main>
+
+<div class="cat-drawer-layer" id="catDrawer" hidden>
+  <div class="cat-drawer-backdrop" id="catBackdrop"></div>
+  <aside class="cat-drawer" role="dialog" aria-modal="true" aria-labelledby="catDrawerTitle" tabindex="-1">
+    <header class="cat-drawer-head">
+      <div class="cat-drawer-title">
+        <strong id="catDrawerTitle">Категории</strong>
+        <span class="muted" id="catDrawerCount"></span>
+      </div>
+      <button type="button" class="cat-drawer-close" id="catDrawerClose" aria-label="Закрыть">×</button>
+    </header>
+    <div class="cat-search">
+      <input type="search" id="catSearch" placeholder="Поиск: молоко, бакалея…"
+             autocomplete="off" spellcheck="false" aria-label="Поиск по категориям">
+      <button type="button" class="cat-search-clear" id="catSearchClear" hidden aria-label="Очистить поиск">×</button>
+    </div>
+    <nav class="cat-crumbs" id="catCrumbs" aria-label="Путь по категориям"></nav>
+    <div class="cat-list" id="catList"></div>
+  </aside>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

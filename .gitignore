@@ -1,0 +1,9 @@
+# Локальные данные и посторонние файлы
+audio_setup/
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Логи
+*.log
