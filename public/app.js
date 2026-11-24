@@ -1033,6 +1033,8 @@ function favoriteSnapshot(product) {
     image: product.image || '',
     unitPrice: product.unitPrice || null,
     unitLabel: product.unitLabel || '',
+    stock: Number(product.stock) || 0,
+    lowStock: Boolean(product.lowStock),
   };
 }
 
@@ -1068,8 +1070,8 @@ function updateFavBadge() {
   favCount.textContent = String(count);
   favCount.hidden = count === 0;
   favToggle.setAttribute('aria-label', count
-    ? `Избранное: ${count} ${plural(count, 'товар', 'товара', 'товаров')}`
-    : 'Избранное');
+    ? `Корзина: ${count} ${plural(count, 'товар', 'товара', 'товаров')}`
+    : 'Корзина');
 }
 
 function updateCardFavButtons() {
@@ -1088,15 +1090,17 @@ function toggleFavorite(product) {
 
   if (index >= 0) {
     favorites.splice(index, 1);
-    toast('Удалено из избранного');
+    toast('Удалено из корзины');
   } else {
     favorites.push({
       key,
       product: favoriteSnapshot(product),
       store: storeSnapshot(state.store || { code: product.storeCode || '', address: '', type: '' }),
       addedAt: Date.now(),
+      checkedAt: Date.now(),
+      missing: false,
     });
-    toast('Добавлено в избранное');
+    toast('Добавлено в корзину');
   }
 
   persistFavorites();
@@ -1112,6 +1116,14 @@ function favoriteDate(timestamp) {
   }
 }
 
+function favoriteStock(product, missing) {
+  if (missing) return '<span class="fav-stock none">нет в продаже</span>';
+  const stock = Number(product.stock) || 0;
+  if (stock <= 0) return '<span class="fav-stock none">нет в наличии</span>';
+  const low = product.lowStock || stock <= 5;
+  return `<span class="fav-stock${low ? ' low' : ''}">${low ? 'мало' : 'в наличии'}: ${nf0.format(stock)} шт.</span>`;
+}
+
 function renderFavorites() {
   const count = favorites.length;
   const total = favorites.reduce((sum, item) => sum + (Number(item.product.price) || 0), 0);
@@ -1124,8 +1136,8 @@ function renderFavorites() {
   if (!count) {
     favList.innerHTML = `
       <div class="fav-empty">
-        <strong>Избранное пустое</strong>
-        Нажмите ★ на карточке товара — он сохранится здесь вместе с ценой и магазином.
+        <strong>Корзина пустая</strong>
+        Нажмите ★ на карточке товара — он сохранится здесь вместе с ценой, остатком и магазином.
       </div>`;
     return;
   }
@@ -1145,19 +1157,21 @@ function renderFavorites() {
       const product = item.product;
       const image = product.image
         ? `<img src="${esc(product.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`
-        : '';
+        : '<span class="fav-noimg">нет фото</span>';
       const unit = product.unitPrice
         ? ` · ${money(product.unitPrice)} / ${esc(unitName(product.unitLabel))}`
         : '';
       const old = product.oldPrice && product.oldPrice > product.price
         ? ` <span class="muted">${money(product.oldPrice)}</span>` : '';
+      const missing = item.missing === true;
       return `
-        <div class="fav-item" data-key="${esc(item.key)}">
+        <div class="fav-item${missing ? ' is-missing' : ''}" data-key="${esc(item.key)}">
           <div class="fav-thumb">${image}</div>
           <div class="fav-main">
             <span class="fav-name">${esc(product.name)}</span>
             <span class="fav-sub">${esc(favoriteDate(item.addedAt))}${unit}</span>
             <span class="fav-price">${money(product.price)}${old}</span>
+            ${favoriteStock(product, missing)}
           </div>
           <div class="fav-side">
             <button type="button" class="fav-add" data-open="${esc(item.key)}">В магазин</button>
@@ -1169,8 +1183,23 @@ function renderFavorites() {
     sections.push(`<div class="fav-group-title">${esc(label)}</div>${rows}`);
   }
 
-  sections.push('<div class="fav-note">Цены сохранены на момент добавления. Откройте товар, чтобы увидеть актуальную цену и наличие.</div>');
+  const missingCount = favorites.filter((item) => item.missing === true).length;
+  const note = missingCount
+    ? `Проверено ${favoriteCheckedText()}. Не найдено в магазине: ${missingCount} ${plural(missingCount, 'товар', 'товара', 'товаров')}.`
+    : 'Остатки и цены проверены в магазине. Нажмите «Проверить цены», чтобы обновить.';
+  sections.push(`<div class="fav-note">${esc(note)}</div>`);
   favList.innerHTML = sections.join('');
+}
+
+function favoriteCheckedText() {
+  let last = 0;
+  for (const item of favorites) if (item.checkedAt) last = Math.max(last, item.checkedAt);
+  if (!last) return 'при добавлении';
+  try {
+    return new Date(last).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return 'при добавлении';
+  }
 }
 
 function openFavorites() {
@@ -1178,6 +1207,69 @@ function openFavorites() {
   favLayer.hidden = false;
   favToggle.setAttribute('aria-expanded', 'true');
   document.body.classList.add('fav-open');
+}
+
+async function refreshFavoritePrices() {
+  if (!favorites.length || favRetry.disabled) return;
+
+  const label = favRetry.textContent;
+  favRetry.disabled = true;
+  favRetry.textContent = 'Проверяем…';
+
+  try {
+    const groups = new Map();
+    for (const item of favorites) {
+      const code = item.store.code || '';
+      if (!groups.has(code)) groups.set(code, []);
+      groups.get(code).push(item);
+    }
+
+    for (const [code, items] of groups) {
+      const names = [...new Set(items.map((item) => item.product.name))].slice(0, 20);
+      const found = new Map();
+
+      for (const name of names) {
+        try {
+          const data = await API.products({ store: code, q: name, limit: 50 });
+          for (const product of data.items || []) {
+            const key = `${product.id}|${product.seoCode}`;
+            if (!found.has(key)) found.set(key, product);
+          }
+        } catch (err) {
+          /* keep the stored values when the lookup fails */
+        }
+      }
+
+      for (const item of items) {
+        const product = [...found.values()].find((candidate) =>
+          candidate.id === item.product.id ||
+          (candidate.seoCode && candidate.seoCode === item.product.seoCode));
+        if (product) {
+          item.product.price = Number(product.price) || item.product.price;
+          item.product.oldPrice = product.oldPrice || null;
+          item.product.discount = product.discount || null;
+          item.product.stock = Number(product.stock) || 0;
+          item.product.lowStock = Boolean(product.lowStock);
+          item.product.image = product.image || item.product.image;
+          item.product.unitPrice = product.unitPrice || item.product.unitPrice;
+          item.product.unitLabel = product.unitLabel || item.product.unitLabel;
+          item.missing = false;
+        } else {
+          item.missing = true;
+        }
+        item.checkedAt = Date.now();
+      }
+    }
+
+    persistFavorites();
+    renderFavorites();
+    toast('Цены и остатки обновлены');
+  } catch (err) {
+    toast('Не удалось обновить цены');
+  } finally {
+    favRetry.disabled = false;
+    favRetry.textContent = label;
+  }
 }
 
 function closeFavorites() {
@@ -1209,7 +1301,7 @@ function productCard(product, isCheapest) {
 
   const stock = product.stock > 0
     ? `<span class="stock${product.lowStock || product.stock <= 5 ? ' low' : ''}">
-         ${product.lowStock ? 'Мало' : 'В наличии'}: ${nf0.format(product.stock)} шт.
+         ${product.lowStock || product.stock <= 5 ? 'Мало' : 'В наличии'}: ${nf0.format(product.stock)} шт.
        </span>`
     : '<span class="stock low">Нет в наличии</span>';
 
@@ -1630,15 +1722,16 @@ favToggle.addEventListener('click', () => {
 });
 favClose.addEventListener('click', closeFavorites);
 favBackdrop.addEventListener('click', closeFavorites);
+favRetry.addEventListener('click', refreshFavoritePrices);
 
 favClear.addEventListener('click', () => {
   if (!favorites.length) return;
-  if (!window.confirm('Очистить избранное?')) return;
+  if (!window.confirm('Очистить корзину?')) return;
   favorites = [];
   persistFavorites();
   updateCardFavButtons();
   renderFavorites();
-  toast('Избранное очищено');
+  toast('Корзина очищена');
 });
 
 favList.addEventListener('click', (event) => {
