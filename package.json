@@ -1,0 +1,12 @@
+{
+  "name": "magnit-cheap-search",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Поиск дешёвых товаров в сети Магнит по городу и магазину",
+  "scripts": {
+    "dev": "node dev-server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
