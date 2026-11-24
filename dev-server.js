@@ -44,7 +44,7 @@ const server = http.createServer(async (req, res) => {
     const handler = require(file);
     const query = Object.fromEntries(url.searchParams.entries());
     try {
-      await handler({ method: req.method, query }, res);
+      await handler({ method: req.method, query, headers: req.headers }, res);
     } catch (err) {
       if (!res.writableEnded) sendJson(res, 500, { error: String(err && err.message || err) });
     }

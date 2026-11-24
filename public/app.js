@@ -1188,6 +1188,7 @@ async function runCompare() {
   const map = new Map();
   const queue = stores.slice();
   let done = 0;
+  let failed = 0;
 
   compareProgress(done, stores.length, query, false);
 
@@ -1218,6 +1219,7 @@ async function runCompare() {
         }
       } catch (err) {
         if (controller.signal.aborted) return;
+        failed += 1;
       }
       done += 1;
       compareProgress(done, stores.length, query, controller.signal.aborted);
@@ -1242,10 +1244,10 @@ async function runCompare() {
     return entry;
   }).sort((a, b) => a.min - b.min);
 
-  renderCompareResults(list, done, stores.length, query, aborted);
+  renderCompareResults(list, done, stores.length, query, aborted, failed);
 }
 
-function renderCompareResults(list, checked, planned, query, aborted) {
+function renderCompareResults(list, checked, planned, query, aborted, failed) {
   compareResults.hidden = false;
   results.innerHTML = '';
   moreWrap.hidden = true;
@@ -1264,11 +1266,14 @@ function renderCompareResults(list, checked, planned, query, aborted) {
   }
 
   statusBar.hidden = false;
+  const failedNote = failed
+    ? ` · <span class="muted">${failed} ${plural(failed, 'магазин', 'магазина', 'магазинов')} не ответил${failed === 1 ? '' : 'и'}</span>`
+    : '';
   statusBar.innerHTML = `
     <div>
       Сравнили <b>${checked}</b> ${plural(checked, 'магазин', 'магазина', 'магазинов')}
       ${aborted ? `из ${nf0.format(planned)} (остановлено)` : ''}
-      · товаров: <b>${nf0.format(list.length)}</b> · «${esc(query)}»
+      · товаров: <b>${nf0.format(list.length)}</b> · «${esc(query)}»${failedNote}
     </div>
     <div class="status-pills">
       ${state.city ? `<span class="pill">${esc(state.city.city)}</span>` : ''}

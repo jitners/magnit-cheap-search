@@ -11,5 +11,6 @@ module.exports = makeHandler(
     page: query.page,
     limit: query.limit,
   }),
-  180
+  180,
+  { limitPerMinute: 150 }
 );
