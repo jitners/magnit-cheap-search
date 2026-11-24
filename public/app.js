@@ -29,6 +29,7 @@ const PAGE_LIMIT = 24;
 
 const LS_CITY = 'magnit.city.v1';
 const LS_STORE = 'magnit.store.v1';
+const LS_FAV = 'magnit.favorites.v1';
 
 /* ------------------------------------------------------------------- utils */
 
@@ -181,6 +182,15 @@ const compareBtn = $('#compareBtn');
 const compareCancel = $('#compareCancel');
 const compareCountSelect = $('#compareCount');
 const compareResults = $('#compareResults');
+const favToggle = $('#favToggle');
+const favCount = $('#favCount');
+const favLayer = $('#favLayer');
+const favBackdrop = $('#favBackdrop');
+const favClose = $('#favClose');
+const favList = $('#favList');
+const favHint = $('#favHint');
+const favClear = $('#favClear');
+const favRetry = $('#favRetry');
 
 /* ------------------------------------------------------- combobox: helpers */
 
@@ -987,14 +997,195 @@ function shortAddress(address) {
 }
 
 function productUrl(product) {
+  return productUrlFor(product, state.store);
+}
+
+function productUrlFor(product, store) {
   const params = new URLSearchParams();
-  if (state.store) {
-    params.set('shopCode', state.store.code);
-    if (state.store.type) params.set('shopType', `STORE_TYPE_${state.store.type}`);
+  if (store) {
+    params.set('shopCode', store.code);
+    if (store.type) params.set('shopType', `STORE_TYPE_${store.type}`);
   }
   const id = encodeURIComponent(product.id || product.productId || '');
   const seo = encodeURIComponent(product.seoCode || '');
   return `https://magnit.ru/product/${id}-${seo}?${params.toString()}`;
+}
+
+/* ---------------------------------------------------------------- favorites */
+
+let favorites = [];
+
+function favoriteKey(product) {
+  const storeCode = (product && product.storeCode) || (state.store && state.store.code) || '';
+  const id = (product && (product.id || product.productId || product.seoCode || product.name)) || '';
+  return `${storeCode}|${id}`;
+}
+
+function favoriteSnapshot(product) {
+  return {
+    id: product.id || '',
+    productId: product.productId || '',
+    name: product.name || '',
+    seoCode: product.seoCode || '',
+    price: Number(product.price) || 0,
+    oldPrice: product.oldPrice || null,
+    discount: product.discount || null,
+    image: product.image || '',
+    unitPrice: product.unitPrice || null,
+    unitLabel: product.unitLabel || '',
+  };
+}
+
+function storeSnapshot(store) {
+  return {
+    code: store.code,
+    address: store.address,
+    type: store.type || '',
+    city: state.city ? state.city.city : '',
+  };
+}
+
+function loadFavorites() {
+  const raw = load(LS_FAV);
+  favorites = Array.isArray(raw)
+    ? raw.filter((item) => item && item.key && item.product && item.store)
+    : [];
+  updateFavBadge();
+}
+
+function persistFavorites() {
+  save(LS_FAV, favorites);
+  updateFavBadge();
+}
+
+function isFavorite(product) {
+  const key = favoriteKey(product);
+  return favorites.some((item) => item.key === key);
+}
+
+function updateFavBadge() {
+  const count = favorites.length;
+  favCount.textContent = String(count);
+  favCount.hidden = count === 0;
+  favToggle.setAttribute('aria-label', count
+    ? `Избранное: ${count} ${plural(count, 'товар', 'товара', 'товаров')}`
+    : 'Избранное');
+}
+
+function updateCardFavButtons() {
+  for (const button of results.querySelectorAll('.fav-btn')) {
+    const active = favorites.some((item) => item.key === button.dataset.fav);
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.title = active ? 'Убрать из избранного' : 'В избранное';
+  }
+}
+
+function toggleFavorite(product) {
+  if (!product) return;
+  const key = favoriteKey(product);
+  const index = favorites.findIndex((item) => item.key === key);
+
+  if (index >= 0) {
+    favorites.splice(index, 1);
+    toast('Удалено из избранного');
+  } else {
+    favorites.push({
+      key,
+      product: favoriteSnapshot(product),
+      store: storeSnapshot(state.store || { code: product.storeCode || '', address: '', type: '' }),
+      addedAt: Date.now(),
+    });
+    toast('Добавлено в избранное');
+  }
+
+  persistFavorites();
+  updateCardFavButtons();
+  if (!favLayer.hidden) renderFavorites();
+}
+
+function favoriteDate(timestamp) {
+  try {
+    return new Date(timestamp).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  } catch (e) {
+    return '';
+  }
+}
+
+function renderFavorites() {
+  const count = favorites.length;
+  const total = favorites.reduce((sum, item) => sum + (Number(item.product.price) || 0), 0);
+
+  favHint.textContent = count
+    ? `${count} ${plural(count, 'товар', 'товара', 'товаров')} · ${money(total)}`
+    : 'Пока пусто';
+  favClear.disabled = !count;
+
+  if (!count) {
+    favList.innerHTML = `
+      <div class="fav-empty">
+        <strong>Избранное пустое</strong>
+        Нажмите ★ на карточке товара — он сохранится здесь вместе с ценой и магазином.
+      </div>`;
+    return;
+  }
+
+  const groups = new Map();
+  for (const item of favorites) {
+    const code = item.store.code || 'unknown';
+    if (!groups.has(code)) groups.set(code, { store: item.store, items: [] });
+    groups.get(code).items.push(item);
+  }
+
+  const sections = [];
+  for (const group of groups.values()) {
+    const store = group.store;
+    const label = [store.city, store.address].filter(Boolean).join(' · ') || 'Магазин';
+    const rows = group.items.map((item) => {
+      const product = item.product;
+      const image = product.image
+        ? `<img src="${esc(product.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`
+        : '';
+      const unit = product.unitPrice
+        ? ` · ${money(product.unitPrice)} / ${esc(unitName(product.unitLabel))}`
+        : '';
+      const old = product.oldPrice && product.oldPrice > product.price
+        ? ` <span class="muted">${money(product.oldPrice)}</span>` : '';
+      return `
+        <div class="fav-item" data-key="${esc(item.key)}">
+          <div class="fav-thumb">${image}</div>
+          <div class="fav-main">
+            <span class="fav-name">${esc(product.name)}</span>
+            <span class="fav-sub">${esc(favoriteDate(item.addedAt))}${unit}</span>
+            <span class="fav-price">${money(product.price)}${old}</span>
+          </div>
+          <div class="fav-side">
+            <button type="button" class="fav-add" data-open="${esc(item.key)}">В магазин</button>
+            <button type="button" class="fav-del" data-del="${esc(item.key)}" aria-label="Убрать из избранного">×</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    sections.push(`<div class="fav-group-title">${esc(label)}</div>${rows}`);
+  }
+
+  sections.push('<div class="fav-note">Цены сохранены на момент добавления. Откройте товар, чтобы увидеть актуальную цену и наличие.</div>');
+  favList.innerHTML = sections.join('');
+}
+
+function openFavorites() {
+  renderFavorites();
+  favLayer.hidden = false;
+  favToggle.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('fav-open');
+}
+
+function closeFavorites() {
+  if (favLayer.hidden) return;
+  favLayer.hidden = true;
+  favToggle.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('fav-open');
+  favToggle.focus();
 }
 
 function productCard(product, isCheapest) {
@@ -1027,9 +1218,16 @@ function productCard(product, isCheapest) {
             onerror="this.style.display='none';this.parentNode.insertAdjacentHTML('beforeend','<span class=&quot;noimg&quot;>нет фото</span>')">`
     : '<span class="noimg">нет фото</span>';
 
+  const favorite = isFavorite(product);
+  const favoriteId = favoriteKey(product);
+
   return `<article class="card${isCheapest ? ' is-cheapest' : ''}" data-href="${esc(productUrl(product))}" tabindex="0" role="link">
     ${isCheapest ? '<span class="card-ribbon">самый дешёвый</span>' : ''}
-    <div class="thumb">${image}${discount}</div>
+    <div class="thumb">${image}${discount}
+      <button type="button" class="fav-btn${favorite ? ' is-active' : ''}" data-fav="${esc(favoriteId)}"
+              aria-pressed="${favorite}" aria-label="${favorite ? 'Убрать из избранного' : 'В избранное'}"
+              title="${favorite ? 'Убрать из избранного' : 'В избранное'}">★</button>
+    </div>
     <div class="card-body">
       <h3 class="card-name">${esc(product.name)}</h3>
       <div class="card-meta">${rating}${reviews}</div>
@@ -1404,6 +1602,12 @@ results.addEventListener('click', (event) => {
     else runSearch();
     return;
   }
+  const favButton = event.target.closest('.fav-btn');
+  if (favButton) {
+    const product = state.items.find((item) => favoriteKey(item) === favButton.dataset.fav);
+    if (product) toggleFavorite(product);
+    return;
+  }
   const card = event.target.closest('.card');
   if (card && card.dataset.href) {
     window.open(card.dataset.href, '_blank', 'noopener');
@@ -1412,11 +1616,53 @@ results.addEventListener('click', (event) => {
 
 results.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
+  if (event.target.closest('.fav-btn')) return;
   const card = event.target.closest('.card');
   if (card && card.dataset.href) {
     event.preventDefault();
     window.open(card.dataset.href, '_blank', 'noopener');
   }
+});
+
+favToggle.addEventListener('click', () => {
+  if (favLayer.hidden) openFavorites();
+  else closeFavorites();
+});
+favClose.addEventListener('click', closeFavorites);
+favBackdrop.addEventListener('click', closeFavorites);
+
+favClear.addEventListener('click', () => {
+  if (!favorites.length) return;
+  if (!window.confirm('Очистить избранное?')) return;
+  favorites = [];
+  persistFavorites();
+  updateCardFavButtons();
+  renderFavorites();
+  toast('Избранное очищено');
+});
+
+favList.addEventListener('click', (event) => {
+  const remove = event.target.closest('[data-del]');
+  if (remove) {
+    favorites = favorites.filter((item) => item.key !== remove.dataset.del);
+    persistFavorites();
+    updateCardFavButtons();
+    renderFavorites();
+    return;
+  }
+
+  const open = event.target.closest('[data-open]');
+  if (open) {
+    const item = favorites.find((entry) => entry.key === open.dataset.open);
+    if (item) window.open(productUrlFor(item.product, item.store), '_blank', 'noopener');
+  }
+});
+
+window.addEventListener('storage', (event) => {
+  if (event.key !== LS_FAV) return;
+  loadFavorites();
+  updateCardFavButtons();
+  if (!favLayer.hidden) renderFavorites();
 });
 
 compareResults.addEventListener('click', (event) => {
@@ -1439,9 +1685,17 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeLists();
 });
 
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || favLayer.hidden) return;
+  event.stopPropagation();
+  closeFavorites();
+});
+
 /* -------------------------------------------------------------------- init */
 
 async function init() {
+  loadFavorites();
+
   if (location.protocol === 'file:') {
     renderEmpty(`
       <h3>Сайт нужно запускать через локальный сервер</h3>

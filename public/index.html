@@ -21,9 +21,16 @@
         <small>низкие цены по городу и магазину</small>
       </div>
     </div>
-    <div class="mode-switch" role="tablist" aria-label="Режим работы">
-      <button type="button" class="mode-btn is-active" data-mode="store">По магазину</button>
-      <button type="button" class="mode-btn" data-mode="compare">Сравнение по городу</button>
+    <div class="header-actions">
+      <div class="mode-switch" role="tablist" aria-label="Режим работы">
+        <button type="button" class="mode-btn is-active" data-mode="store">По магазину</button>
+        <button type="button" class="mode-btn" data-mode="compare">Сравнение по городу</button>
+      </div>
+      <button type="button" class="fav-toggle" id="favToggle" aria-expanded="false" aria-controls="favPanel">
+        <span class="fav-toggle-icon" aria-hidden="true">★</span>
+        <span class="fav-toggle-text">Избранное</span>
+        <span class="fav-toggle-count" id="favCount" hidden>0</span>
+      </button>
     </div>
   </div>
 </header>
@@ -146,6 +153,24 @@
     </div>
     <nav class="cat-crumbs" id="catCrumbs" aria-label="Путь по категориям"></nav>
     <div class="cat-list" id="catList"></div>
+  </aside>
+</div>
+
+<div class="fav-layer" id="favLayer" hidden>
+  <div class="fav-backdrop" id="favBackdrop"></div>
+  <aside class="fav-panel" role="dialog" aria-modal="true" aria-labelledby="favTitle">
+    <header class="fav-head">
+      <div class="fav-title">
+        <strong id="favTitle">Избранное</strong>
+        <span class="muted" id="favHint"></span>
+      </div>
+      <button type="button" class="fav-close" id="favClose" aria-label="Закрыть">×</button>
+    </header>
+    <div class="fav-toolbar">
+      <button type="button" class="fav-action" id="favClear">Очистить всё</button>
+      <button type="button" class="fav-action" id="favRetry">Проверить цены</button>
+    </div>
+    <div class="fav-list" id="favList"></div>
   </aside>
 </div>
 
